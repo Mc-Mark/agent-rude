@@ -1,0 +1,288 @@
+import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { MessageCircle } from 'lucide-react';
+import Chat from './components/Chat';
+import './types.d.ts';
+
+declare global {
+  interface Window {
+    webkitSpeechRecognition: new () => SpeechRecognition;
+  }
+}
+
+const AHMED_INTRO = "Ik ben Achmed wat moet je";
+
+function App() {
+  // Component state
+  const mounted = useRef(true);
+  const hasUserInteracted = useRef(false);
+  const shouldRestart = useRef(false);
+  const isListening = useRef(false);
+  const recognition = useRef<SpeechRecognition | null>(null);
+  const widgetCleanup = useRef<(() => void) | null>(null);
+  const audioContext = useRef<AudioContext | null>(null);
+  const audioStream = useRef<MediaStream | null>(null);
+  const audioAnalyser = useRef<AnalyserNode | null>(null);
+  const widget = useRef<ConvaiWidget | null>(null);
+  const restartTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartAttempts = useRef(0);
+  const MAX_RESTART_ATTEMPTS = 3;
+  const isInitialized = useRef(false);
+
+  // Audio monitoring functions
+  const stopAudioMonitoring = async () => {
+    console.log('Stopping audio monitoring...');
+    if (audioStream.current) {
+      audioStream.current.getTracks().forEach(track => track.stop());
+      audioStream.current = null;
+    }
+    
+    if (audioContext.current) {
+      try {
+        await audioContext.current.close();
+      } catch (error) {
+        console.error('Error closing audio context:', error);
+      }
+      audioContext.current = null;
+      audioAnalyser.current = null;
+    }
+  };
+
+  const startAudioMonitoring = async () => {
+    console.log('Starting audio monitoring...');
+    try {
+      await stopAudioMonitoring(); // Clean up first
+
+      audioStream.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false
+      });
+
+      audioContext.current = new AudioContext();
+      if (audioStream.current && audioContext.current) {
+        const source = audioContext.current.createMediaStreamSource(audioStream.current);
+        audioAnalyser.current = audioContext.current.createAnalyser();
+        source.connect(audioAnalyser.current);
+      }
+
+      console.log('Audio monitoring started successfully');
+    } catch (error) {
+      console.error('Error starting audio monitoring:', error);
+      await stopAudioMonitoring();
+      throw error;
+    }
+  };
+
+  // Initialize recognition instance
+  const initializeRecognition = useCallback(() => {
+    if (!mounted.current) return;
+
+    try {
+      const SpeechRecognition = window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        console.error('Speech recognition not supported');
+        return;
+      }
+
+      const newRecognition = new SpeechRecognition();
+      newRecognition.continuous = true;
+      newRecognition.interimResults = true;
+      newRecognition.lang = 'nl-NL';
+
+      newRecognition.onstart = () => {
+        console.log('Speech recognition started');
+        isListening.current = true;
+      };
+
+      newRecognition.onend = () => {
+        console.log('Speech recognition ended');
+        isListening.current = false;
+
+        if (shouldRestart.current && mounted.current) {
+          if (restartAttempts.current < MAX_RESTART_ATTEMPTS) {
+            console.log('Restarting speech recognition...');
+            restartAttempts.current++;
+            restartTimeout.current = setTimeout(() => {
+              if (mounted.current) {
+                newRecognition.start();
+              }
+            }, 1000);
+          } else {
+            console.log('Max restart attempts reached');
+            shouldRestart.current = false;
+            restartAttempts.current = 0;
+          }
+        }
+      };
+
+      newRecognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        if (event.error === 'not-allowed') {
+          shouldRestart.current = false;
+        }
+      };
+
+      newRecognition.onresult = (event) => {
+        if (!event.results) return;
+
+        const results = Array.from(event.results);
+        const transcripts = results.map(result => ({
+          text: result[0].transcript,
+          isFinal: result.isFinal
+        }));
+
+        console.log('Transcripts:', transcripts);
+
+        // Find the last final result
+        const finalTranscript = transcripts
+          .filter(t => t.isFinal)
+          .map(t => t.text)
+          .join(' ');
+
+        // Dispatch a custom event for the Chat component
+        const transcriptEvent = new CustomEvent('userSpeechTranscript', {
+          detail: {
+            transcript: finalTranscript,
+            isFinal: true
+          }
+        });
+        window.dispatchEvent(transcriptEvent);
+
+        // Send to widget if it's a final transcript
+        if (widget.current && finalTranscript.trim()) {
+          const messageEvent = new CustomEvent('message', {
+            detail: { text: finalTranscript }
+          });
+          widget.current.dispatchEvent(messageEvent);
+        }
+      };
+
+      recognition.current = newRecognition;
+      console.log('Speech recognition initialized');
+    } catch (error) {
+      console.error('Error initializing speech recognition:', error);
+    }
+  }, []);
+
+  // Start listening function
+  const startListening = async () => {
+    if (!isListening.current && recognition.current) {
+      try {
+        await startAudioMonitoring();
+        recognition.current.start();
+        isListening.current = true;
+        console.log('Recognition started successfully');
+      } catch (error) {
+        console.error('Error starting recognition:', error);
+        isListening.current = false;
+        await stopAudioMonitoring();
+      }
+    }
+  };
+
+  // Stop listening function
+  const stopListening = async () => {
+    console.log('Stopping listening...');
+    if (recognition.current) {
+      shouldRestart.current = false;
+      recognition.current.stop();
+    }
+    await stopAudioMonitoring();
+    isListening.current = false;
+  };
+
+  // Initialize widget
+  const initializeWidget = useCallback(() => {
+    if (!mounted.current || widget.current) return;
+
+    try {
+      const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
+      if (!apiKey) {
+        throw new Error('ElevenLabs API key not found');
+      }
+
+      const widgetElement = document.createElement('elevenlabs-convai');
+      widgetElement.setAttribute('agent-id', 'akUQ3jWHilChfhFfPsPM');
+      widgetElement.setAttribute('voice-id', 'pNInz6obpgDQGcFmaJgB');
+      widgetElement.setAttribute('api-key', apiKey);
+      widgetElement.setAttribute('initial-message', AHMED_INTRO);
+
+      widget.current = widgetElement as ConvaiWidget;
+
+      // Add event listeners
+      const handleWidgetMessage = () => {
+        if (!hasUserInteracted.current) {
+          hasUserInteracted.current = true;
+          shouldRestart.current = true;
+          void startListening();
+        }
+      };
+
+      const handleWidgetError = (event: ConvaiErrorEvent) => {
+        console.error('Widget error:', event.detail?.error);
+      };
+
+      widget.current.addEventListener('message', handleWidgetMessage);
+      widget.current.addEventListener('error', handleWidgetError);
+
+      // Store cleanup function
+      widgetCleanup.current = () => {
+        if (widget.current) {
+          widget.current.removeEventListener('message', handleWidgetMessage);
+          widget.current.removeEventListener('error', handleWidgetError);
+        }
+      };
+
+      console.log('Widget initialized successfully');
+    } catch (error) {
+      console.error('Error initializing widget:', error);
+    }
+  }, []);
+
+  // Initialization effect
+  useEffect(() => {
+    if (!isInitialized.current) {
+      initializeRecognition();
+      initializeWidget();
+      isInitialized.current = true;
+    }
+
+    return () => {
+      mounted.current = false;
+      if (widgetCleanup.current) {
+        widgetCleanup.current();
+      }
+      if (restartTimeout.current) {
+        clearTimeout(restartTimeout.current);
+      }
+      void stopListening();
+    };
+  }, [initializeRecognition, initializeWidget]);
+
+  return (
+    <div className="flex h-screen bg-gray-100">
+      <div className="flex flex-col flex-1">
+        <div className="flex-1 overflow-y-auto p-4">
+          <Chat widget={widget.current} />
+        </div>
+        <div className="p-4 border-t">
+          <div className="flex justify-between items-center">
+            <button
+              onClick={() => void startListening()}
+              className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+            >
+              Start
+            </button>
+            <button
+              onClick={() => void stopListening()}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;
