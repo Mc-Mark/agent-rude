@@ -12,6 +12,10 @@ declare global {
 
 const AHMED_INTRO = "Ik ben Achmed wat moet je";
 
+const isMobileBrowser = () => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
+
 function App() {
   // Refs for managing state
   const mounted = useRef(true);
@@ -347,14 +351,42 @@ function App() {
         throw new Error('ElevenLabs API key not found');
       }
 
+      console.log('Initializing widget on mobile:', isMobileBrowser());
+
       const widgetElement = document.createElement('elevenlabs-convai');
       widgetElement.setAttribute('agent-id', 'akUQ3jWHilChfhFfPsPM');
       widgetElement.setAttribute('voice-id', 'pNInz6obpgDQGcFmaJgB');
       widgetElement.setAttribute('api-key', apiKey);
       widgetElement.setAttribute('stability', '0.7');
       widgetElement.setAttribute('similarity-boost', '0.7');
+      
+      // Add mobile-specific attributes if needed
+      if (isMobileBrowser()) {
+        widgetElement.setAttribute('mobile', 'true');
+        console.log('Added mobile attribute to widget');
+      }
 
       widget.current = widgetElement as ConvaiWidget;
+
+      // Add enhanced error logging
+      widget.current.addEventListener('error', (event: ConvaiErrorEvent) => {
+        console.error('Widget error:', {
+          error: event.detail?.error,
+          isMobile: isMobileBrowser(),
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString()
+        });
+      });
+
+      // Add enhanced message logging
+      widget.current.addEventListener('message', (event: ConvaiMessageEvent) => {
+        console.log('Widget message:', {
+          text: event.detail?.text,
+          isMobile: isMobileBrowser(),
+          timestamp: new Date().toISOString()
+        });
+        handleWidgetMessage(event);
+      });
 
       const debugEvents = [
         'message', 'error', 'microphoneState',
