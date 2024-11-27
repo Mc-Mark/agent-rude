@@ -50,9 +50,9 @@ export interface SpeechRecognition extends EventTarget {
 // Convai Widget types
 export interface ConvaiMessageEvent extends CustomEvent<{ text: string }> {}
 
-export interface ConvaiErrorEvent extends CustomEvent<{ error: string }> {}
+export type ConvaiErrorEvent = CustomEvent<{ error: string }>;
 
-export interface ConvaiMicrophoneEvent extends CustomEvent<{ state: 'on' | 'off' }> {}
+export type ConvaiMicrophoneEvent = CustomEvent<{ state: 'on' | 'off' }>;
 
 export interface ConvaiEventMap {
   'message': ConvaiMessageEvent;

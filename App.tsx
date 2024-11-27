@@ -220,8 +220,6 @@ function App() {
           const isFinal = result.isFinal;
 
           if (isFinal) {
-            console.log('Final transcript received:', transcript);
-            
             // Process the transcript to add punctuation and capitalization
             transcript = transcript
               // Add space after punctuation if missing
@@ -234,22 +232,13 @@ function App() {
               .replace(/(^|[.!?]\s+)([a-z])/g, (match, p1, p2) => p1 + p2.toUpperCase())
               // Ensure first letter of transcript is capitalized
               .replace(/^[a-z]/g, letter => letter.toUpperCase());
-
-            console.log('Processed final transcript:', transcript);
-            
-            const transcriptEvent = new CustomEvent('userSpeechTranscript', {
-              detail: { transcript, isFinal }
-            });
-
-            console.log('Dispatching final transcript event:', { transcript });
-            window.dispatchEvent(transcriptEvent);
-          } else {
-            // Still dispatch interim results but don't log them
-            const transcriptEvent = new CustomEvent('userSpeechTranscript', {
-              detail: { transcript, isFinal }
-            });
-            window.dispatchEvent(transcriptEvent);
           }
+          
+          const transcriptEvent = new CustomEvent('userSpeechTranscript', {
+            detail: { transcript, isFinal }
+          });
+
+          window.dispatchEvent(transcriptEvent);
         }
       };
     } catch (error) {
@@ -276,17 +265,7 @@ function App() {
   }, []);
 
   const handleWidgetMessage = useCallback((event: ConvaiMessageEvent) => {
-    console.log('Widget message event:', event);
-    console.log('Widget message detail:', event.detail);
-    
-    if (event.detail?.text) {
-      console.log('Processing widget message:', event.detail.text);
-      const messageEvent = new CustomEvent('message', {
-        detail: { text: event.detail.text }
-      });
-      widget.current?.dispatchEvent(messageEvent);
-      console.log('Widget message dispatched:', event.detail.text);
-    }
+    console.log('Widget message received:', event.detail?.text);
   }, []);
 
   const handleWidgetError = useCallback((event: ConvaiErrorEvent) => {
@@ -370,32 +349,35 @@ function App() {
         debugHandlers.current.push({ event: eventName, handler: debugHandler as EventListener });
       });
 
-      // Add message event listener
-      widget.current.addEventListener('message', (event: ConvaiMessageEvent) => {
-        console.log('Ahmed response:', event.detail?.text);
+      const messageHandler = (event: ConvaiMessageEvent) => {
+        console.log('Processing widget message:', event.detail?.text);
         handleWidgetMessage(event);
-      });
-
-      // Add error event listener
-      widget.current.addEventListener('error', (event: ConvaiErrorEvent) => {
-        console.error('Widget error:', event.detail?.error);
-      });
-
-      // Add microphone state listener
-      widget.current.addEventListener('microphoneState', (event: CustomEvent<{ state: 'on' | 'off' }>) => {
+      };
+      
+      const errorHandler = (event: ConvaiErrorEvent) => {
+        console.error('Processing widget error:', event.detail?.error);
+        handleWidgetError(event);
+      };
+      
+      const micStateHandler = (event: CustomEvent<{ state: 'on' | 'off' }>) => {
+        console.log('Processing microphone state change:', event.detail?.state);
+        
         const state = event.detail.state;
+        
         isMicrophoneActive.current = state === 'on';
         
         if (state === 'on') {
-          console.log('Starting speech recognition');
+          console.log('Starting speech recognition from widget');
           void startListening();
         } else if (state === 'off') {
-          console.log('Stopping speech recognition');
+          console.log('Stopping speech recognition from widget');
           void stopListening();
         }
-      });
+      };
 
-      console.log('Widget initialized successfully');
+      widget.current.addEventListener('message', messageHandler as EventListener);
+      widget.current.addEventListener('error', errorHandler as EventListener);
+      widget.current.addEventListener('microphoneState', micStateHandler as EventListener);
 
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {

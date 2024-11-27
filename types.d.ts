@@ -59,6 +59,7 @@ interface ConvaiWidget extends HTMLElement {
   addEventListener(type: 'message', listener: (event: ConvaiMessageEvent) => void): void;
   addEventListener(type: 'error', listener: (event: ConvaiErrorEvent) => void): void;
   addEventListener(type: 'convai-start' | 'convai-end', listener: () => void): void;
+  removeEventListener(type: string, listener: EventListener): void;
   setAttribute(name: string, value: string): void;
   getAttribute(name: string): string | null;
 }
