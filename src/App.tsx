@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { MessageCircle } from 'lucide-react';
-import { SpeechRecognition, ConvaiWidget, ConvaiErrorEvent, SpeechRecognitionEvent, ConvaiEventMap, ConvaiMessageEvent } from './components/types';
+import type { 
+  SpeechRecognition, 
+  ConvaiWidget, 
+  ConvaiMessageEvent, 
+  ConvaiErrorEvent, 
+  ConvaiEventMap, 
+  SpeechRecognitionEvent,
+  ConvaiConfig 
+} from './components/types';
 import Chat from './components/Chat';
 
 declare global {
@@ -17,8 +25,12 @@ const isMobileBrowser = () => {
 };
 
 const isIOSSafari = () => {
-  const ua = navigator.userAgent;
-  return /iPad|iPhone|iPod/.test(ua) && !window.MSStream && /WebKit/.test(ua);
+  const ua = window.navigator.userAgent;
+  const iOS = /iPad|iPhone|iPod/.test(ua);
+  const webkit = /WebKit/.test(ua);
+  const notChrome = !/Chrome/.test(ua);
+  
+  return iOS && webkit && notChrome;
 };
 
 function App() {
@@ -444,9 +456,12 @@ function App() {
       widget.current = widgetElement as ConvaiWidget;
 
       // Add event listeners before appending
-      const addListener = (eventName: string, handler: EventListener) => {
+      const addListener = <K extends keyof ConvaiEventMap>(
+        eventName: K,
+        handler: (event: ConvaiEventMap[K]) => void
+      ) => {
         if (widget.current) {
-          widget.current.addEventListener(eventName, handler);
+          widget.current.addEventListener(eventName, handler as EventListener);
           console.log(`Added ${eventName} listener`);
         }
       };
@@ -498,14 +513,17 @@ function App() {
         console.log('Widget audio ended');
       });
 
-      addListener('speaking', (event: Event) => {
-        const speakingEvent = event as CustomEvent;
-        console.log('Widget speaking event:', speakingEvent.detail);
+      addListener('start', () => {
+        console.log('Widget started');
+      });
+
+      addListener('end', () => {
+        console.log('Widget ended');
       });
 
       // Log all widget events for debugging
-      ['ready', 'start', 'end', 'error', 'message'].forEach(eventName => {
-        addListener(eventName, (event: Event) => {
+      ['convai-start', 'convai-end', 'speechstart', 'speechend', 'result'].forEach(eventName => {
+        addListener(eventName as keyof ConvaiEventMap, (event) => {
           console.log(`Widget ${eventName} event:`, event);
         });
       });
@@ -667,8 +685,8 @@ function App() {
             api-key={import.meta.env.VITE_ELEVENLABS_API_KEY}
             agent-id="akUQ3jWHilChfhFfPsPM"
             voice-id="pNInz6obpgDQGcFmaJgB"
-            stability="0.7"
-            similarity-boost="0.7"
+            class="convai-widget"
+            debug="true"
             style={{ width: '100%', height: '400px' }}
           />
         </div>

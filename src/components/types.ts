@@ -48,11 +48,23 @@ export interface SpeechRecognition extends EventTarget {
 }
 
 // Convai Widget types
-export interface ConvaiMessageEvent extends CustomEvent<{ text: string }> {}
+export interface ConvaiMessageEvent {
+  detail?: {
+    text: string;
+  };
+}
 
-export interface ConvaiErrorEvent extends CustomEvent<{ error: string }> {}
+export interface ConvaiErrorEvent {
+  detail?: {
+    error: string;
+  };
+}
 
-export interface ConvaiMicrophoneEvent extends CustomEvent<{ state: 'on' | 'off' }> {}
+export interface ConvaiMicrophoneEvent {
+  detail?: {
+    state: 'on' | 'off';
+  };
+}
 
 export interface ConvaiEventMap {
   'message': ConvaiMessageEvent;
@@ -76,4 +88,36 @@ export interface ConvaiWidget extends HTMLElement {
   setAttribute(name: string, value: string): void;
   getAttribute(name: string): string | null;
   dispatchEvent(event: Event): boolean;
+}
+
+// Convai Configuration types
+export interface ConvaiConfig {
+  apiKey: string;
+  agentId: string;
+  voiceId: string;
+  backgroundColor?: string;
+  textColor?: string;
+  debug?: boolean;
+  enableAudio?: boolean;
+  enableText?: boolean;
+  language?: string;
+  tts?: {
+    voiceId: string;
+    modelId: string;
+    stability: number;
+    similarityBoost: number;
+    style: number;
+    useSSML: boolean;
+  };
+  stt?: {
+    continuous: boolean;
+    interimResults: boolean;
+    silenceDetectionConfig?: {
+      minSpeechActivity: number;
+      timeBeforeSilence: number;
+      silenceThreshold: number;
+      minSilenceDuration: number;
+      maxSpeechDuration: number;
+    };
+  };
 }
