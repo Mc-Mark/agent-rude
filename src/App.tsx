@@ -396,47 +396,8 @@ function App() {
     }
 
     try {
-      console.log('Initializing widget with debug mode...');
+      console.log('Initializing widget...');
       
-      // Create a proxy to intercept property access
-      const originalAddEventListener = EventTarget.prototype.addEventListener;
-      EventTarget.prototype.addEventListener = function(type: string, listener: EventListener, options?: boolean | AddEventListenerOptions) {
-        console.log(`addEventListener called for type: ${type}`);
-        return originalAddEventListener.call(this, type, (...args: any[]) => {
-          console.log(`Event fired: ${type}`, args);
-          return listener.apply(this, args);
-        }, options);
-      };
-
-      // Monitor all DOM mutations
-      const documentObserver = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach((node) => {
-              if (node instanceof HTMLElement) {
-                console.log('New element added:', node.tagName, node.attributes);
-                // Monitor this element's attributes
-                new MutationObserver((mutations) => {
-                  mutations.forEach((m) => {
-                    console.log('Element attribute changed:', {
-                      element: node.tagName,
-                      attribute: m.attributeName,
-                      oldValue: m.oldValue,
-                      newValue: node.getAttribute(m.attributeName || '')
-                    });
-                  });
-                }).observe(node, { attributes: true, attributeOldValue: true });
-              }
-            });
-          }
-        });
-      });
-
-      documentObserver.observe(document.body, { 
-        childList: true, 
-        subtree: true 
-      });
-
       const widgetConfig: ConvaiConfig = {
         apiKey: import.meta.env.VITE_ELEVENLABS_API_KEY,
         agentId: 'akUQ3jWHilChfhFfPsPM',
@@ -470,19 +431,6 @@ function App() {
 
       const widgetElement = document.createElement('elevenlabs-convai');
       
-      // Monitor the widget element specifically
-      const widgetObserver = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          console.log('Widget mutation:', {
-            type: mutation.type,
-            target: mutation.target,
-            attributeName: mutation.attributeName,
-            oldValue: mutation.oldValue,
-            newValue: (mutation.target as HTMLElement).getAttribute(mutation.attributeName || '')
-          });
-        });
-      });
-
       // Set configuration
       Object.entries(widgetConfig).forEach(([key, value]) => {
         if (typeof value === 'object') {
@@ -490,76 +438,77 @@ function App() {
         } else {
           widgetElement.setAttribute(key, String(value));
         }
-        console.log(`Set widget attribute: ${key} = ${typeof value === 'object' ? JSON.stringify(value) : value}`);
+        console.log(`Set widget attribute: ${key}`);
       });
 
       widget.current = widgetElement as ConvaiWidget;
 
-      // Start observing the widget element
-      widgetObserver.observe(widget.current, {
-        attributes: true,
-        childList: true,
-        characterData: true,
-        subtree: true,
-        attributeOldValue: true,
-        characterDataOldValue: true
-      });
-
-      // Monitor all properties of the widget
-      const widgetProxy = new Proxy(widget.current, {
-        get: function(target, prop) {
-          console.log(`Accessing widget property: ${String(prop)}`);
-          return target[prop as keyof typeof target];
-        },
-        set: function(target, prop, value) {
-          console.log(`Setting widget property: ${String(prop)} = `, value);
-          target[prop as keyof typeof target] = value;
-          return true;
-        }
-      });
-
-      // Add event listeners
+      // Add event listeners before appending
       const addListener = (eventName: string, handler: EventListener) => {
-        if (widgetProxy) {
-          console.log(`Adding listener for: ${eventName}`);
-          widgetProxy.addEventListener(eventName, (event: Event) => {
-            console.log(`${eventName} event fired:`, event);
-            handler(event);
-          });
+        if (widget.current) {
+          widget.current.addEventListener(eventName, handler);
+          console.log(`Added ${eventName} listener`);
         }
       };
 
-      // Add all possible event listeners
-      [
-        'message', 'error', 'audiostart', 'audioend', 'speaking',
-        'ready', 'start', 'end', 'speechstart', 'speechend',
-        'soundstart', 'soundend', 'result', 'nomatch', 'audio'
-      ].forEach(eventName => {
-        addListener(eventName, (event: Event) => {
-          console.log(`Widget ${eventName} event:`, {
-            type: event.type,
-            timestamp: new Date().toISOString(),
-            detail: event instanceof CustomEvent ? event.detail : null,
-            target: event.target
+      // Handle widget responses
+      addListener('message', handleWidgetMessage);
+      addListener('error', handleWidgetError);
+
+      // Add specific audio event listeners
+      addListener('audiostart', () => {
+        console.log('Widget audio started');
+        let currentText = '';
+        
+        // Create a MutationObserver to watch for text changes
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'text') {
+              const newText = (mutation.target as HTMLElement).getAttribute('text') || '';
+              if (newText && newText !== currentText) {
+                currentText = newText;
+                console.log('Widget text updated:', newText);
+                
+                // Dispatch the text as a message
+                const messageEvent = new CustomEvent('widgetMessage', {
+                  detail: { 
+                    text: newText,
+                    timestamp: new Date().toISOString(),
+                    source: 'ahmed'
+                  },
+                  bubbles: true,
+                  cancelable: true
+                });
+                window.dispatchEvent(messageEvent);
+              }
+            }
           });
         });
+
+        // Start observing the widget element
+        if (widget.current) {
+          observer.observe(widget.current, {
+            attributes: true,
+            attributeFilter: ['text']
+          });
+        }
       });
 
-      // Monitor audio context
-      const originalAudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      (window as any).AudioContext = (window as any).webkitAudioContext = function(...args: any[]) {
-        console.log('New AudioContext created:', args);
-        const context = new originalAudioContext(...args);
-        
-        // Monitor audio nodes
-        const originalCreateMediaStreamSource = context.createMediaStreamSource;
-        context.createMediaStreamSource = function(...args: any[]) {
-          console.log('Creating MediaStreamSource:', args);
-          return originalCreateMediaStreamSource.apply(this, args);
-        };
-        
-        return context;
-      };
+      addListener('audioend', () => {
+        console.log('Widget audio ended');
+      });
+
+      addListener('speaking', (event: Event) => {
+        const speakingEvent = event as CustomEvent;
+        console.log('Widget speaking event:', speakingEvent.detail);
+      });
+
+      // Log all widget events for debugging
+      ['ready', 'start', 'end', 'error', 'message'].forEach(eventName => {
+        addListener(eventName, (event: Event) => {
+          console.log(`Widget ${eventName} event:`, event);
+        });
+      });
 
       // Append to container
       if (widgetContainer.current) {
