@@ -288,27 +288,48 @@ function App() {
     console.log('Widget message event received:', event);
     
     if (event.detail?.text) {
-      console.log('Processing widget message:', event.detail.text);
+      const text = event.detail.text;
+      console.log('Processing widget message:', text);
       
-      // Create a new message event that will work on mobile
-      const messageEvent = new CustomEvent('message', {
-        detail: { 
-          text: event.detail.text,
-          timestamp: new Date().toISOString(),
-          source: 'ahmed'
-        },
-        bubbles: true,  // Allow event to bubble up
-        cancelable: true
-      });
+      // Try multiple ways to dispatch the message
+      try {
+        // 1. Try the global handler
+        if ((window as any).handleAhmedMessage) {
+          console.log('Using global message handler');
+          (window as any).handleAhmedMessage(text);
+        }
 
-      // Dispatch to both widget and window to ensure mobile receives it
-      if (widget.current) {
-        console.log('Dispatching to widget:', event.detail.text);
-        widget.current.dispatchEvent(messageEvent);
+        // 2. Dispatch custom event
+        const messageEvent = new CustomEvent('widgetMessage', {
+          detail: { 
+            text,
+            timestamp: new Date().toISOString(),
+            source: 'ahmed'
+          },
+          bubbles: true,
+          cancelable: true
+        });
+
+        console.log('Dispatching widget message event');
+        window.dispatchEvent(messageEvent);
+
+        // 3. Try standard message event
+        const standardEvent = new MessageEvent('message', {
+          data: { text, source: 'ahmed' },
+          origin: window.location.origin
+        });
+
+        console.log('Dispatching standard message event');
+        window.dispatchEvent(standardEvent);
+
+        // 4. Update widget if available
+        if (widget.current) {
+          console.log('Dispatching to widget');
+          widget.current.dispatchEvent(messageEvent);
+        }
+      } catch (error) {
+        console.error('Error dispatching message:', error);
       }
-      
-      console.log('Dispatching to window:', event.detail.text);
-      window.dispatchEvent(messageEvent);
     }
   }, []);
 
@@ -361,36 +382,43 @@ function App() {
     }
 
     try {
-      console.log('Starting widget initialization...');
-      const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
-      if (!apiKey) {
-        throw new Error('ElevenLabs API key not found');
-      }
-
-      const browserInfo = {
-        isMobile: isMobileBrowser(),
-        isIOS: isIOSSafari(),
-        userAgent: navigator.userAgent,
-        platform: navigator.platform
-      };
+      console.log('Initializing widget...');
       
-      console.log('Browser information:', browserInfo);
+      const widgetConfig: ConvaiConfig = {
+        apiKey: import.meta.env.VITE_ELEVENLABS_API_KEY,
+        agentId: 'akUQ3jWHilChfhFfPsPM',
+        voiceId: 'pNInz6obpgDQGcFmaJgB',
+        backgroundColor: '#1f2937',
+        textColor: '#ffffff',
+        debug: true,
+        enableAudio: true,
+        enableText: false,
+        language: 'nl-NL',
+        tts: {
+          voiceId: 'pNInz6obpgDQGcFmaJgB',
+          modelId: 'eleven_multilingual_v2',
+          stability: 0.5,
+          similarityBoost: 0.8,
+          style: 0.5,
+          useSSML: true
+        },
+        stt: {
+          continuous: true,
+          interimResults: true,
+          silenceDetectionConfig: {
+            minSpeechActivity: 0.3,     // Lower threshold for speech detection
+            timeBeforeSilence: 1500,    // Increased silence time before finalizing (in ms)
+            silenceThreshold: 0.15,     // Higher threshold for silence detection
+            minSilenceDuration: 1000,   // Minimum silence duration before stopping (in ms)
+            maxSpeechDuration: 30000    // Maximum speech duration (30 seconds)
+          }
+        }
+      };
 
       const widgetElement = document.createElement('elevenlabs-convai');
       
       // Basic configuration
-      const config = {
-        'agent-id': 'akUQ3jWHilChfhFfPsPM',
-        'voice-id': 'pNInz6obpgDQGcFmaJgB',
-        'api-key': apiKey,
-        'stability': '0.7',
-        'similarity-boost': '0.7',
-        'debug': 'true',  // Enable debug mode
-        'log-level': 'verbose'  // Set logging to verbose
-      };
-
-      // Set all configurations
-      Object.entries(config).forEach(([key, value]) => {
+      Object.entries(widgetConfig).forEach(([key, value]) => {
         widgetElement.setAttribute(key, value);
         console.log(`Set widget attribute: ${key}`);
       });
@@ -414,7 +442,6 @@ function App() {
         const errorEvent = event as ConvaiErrorEvent;
         console.error('Widget error:', {
           error: errorEvent.detail?.error,
-          browserInfo,
           timestamp: new Date().toISOString()
         });
       });
@@ -422,7 +449,7 @@ function App() {
       // State logging
       ['audiostart', 'audioend', 'speechstart', 'speechend'].forEach(eventName => {
         addListener(eventName, () => {
-          console.log(`Widget ${eventName} event`, { browserInfo });
+          console.log(`Widget ${eventName} event`);
         });
       });
 
