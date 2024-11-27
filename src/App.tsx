@@ -590,8 +590,8 @@ function App() {
           <div className="max-w-4xl mx-auto">
             <div className="relative rounded-lg overflow-hidden shadow-2xl">
               <img
-                src="https://i.postimg.cc/WpmzKtYT/Portrait-Agent-Rude.png"
-                alt="Ahmed Portrait"
+                src="https://i.postimg.cc/XNz7xdT2/Agent-Rude-at-Desk.gif"
+                alt="Ahmed at Desk"
                 className="w-full object-cover"
                 style={{ maxHeight: '400px' }}
               />
