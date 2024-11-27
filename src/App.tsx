@@ -16,6 +16,11 @@ const isMobileBrowser = () => {
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 };
 
+const isIOSSafari = () => {
+  const ua = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(ua) && !window.MSStream && /WebKit/.test(ua);
+};
+
 function App() {
   // Refs for managing state
   const mounted = useRef(true);
@@ -351,41 +356,68 @@ function App() {
         throw new Error('ElevenLabs API key not found');
       }
 
-      console.log('Initializing widget on mobile:', isMobileBrowser());
+      const browserInfo = {
+        isMobile: isMobileBrowser(),
+        isIOS: isIOSSafari(),
+        userAgent: navigator.userAgent
+      };
+      
+      console.log('Browser information:', browserInfo);
 
       const widgetElement = document.createElement('elevenlabs-convai');
+      
+      // Basic configuration
       widgetElement.setAttribute('agent-id', 'akUQ3jWHilChfhFfPsPM');
       widgetElement.setAttribute('voice-id', 'pNInz6obpgDQGcFmaJgB');
       widgetElement.setAttribute('api-key', apiKey);
       widgetElement.setAttribute('stability', '0.7');
       widgetElement.setAttribute('similarity-boost', '0.7');
-      
-      // Add mobile-specific attributes if needed
-      if (isMobileBrowser()) {
-        widgetElement.setAttribute('mobile', 'true');
-        console.log('Added mobile attribute to widget');
+
+      // iOS Safari specific configuration
+      if (isIOSSafari()) {
+        console.log('Configuring widget for iOS Safari');
+        widgetElement.setAttribute('ios-safari', 'true');
+        // Force audio output through system
+        widgetElement.setAttribute('playback-device', 'system-default');
       }
 
       widget.current = widgetElement as ConvaiWidget;
 
-      // Add enhanced error logging
+      // Enhanced error handling
       widget.current.addEventListener('error', (event: ConvaiErrorEvent) => {
         console.error('Widget error:', {
           error: event.detail?.error,
-          isMobile: isMobileBrowser(),
-          userAgent: navigator.userAgent,
+          browserInfo,
           timestamp: new Date().toISOString()
         });
       });
 
-      // Add enhanced message logging
+      // Enhanced message logging
       widget.current.addEventListener('message', (event: ConvaiMessageEvent) => {
-        console.log('Widget message:', {
+        console.log('Widget message received:', {
           text: event.detail?.text,
-          isMobile: isMobileBrowser(),
+          browserInfo,
           timestamp: new Date().toISOString()
         });
         handleWidgetMessage(event);
+      });
+
+      // Add audio state logging
+      widget.current.addEventListener('audiostart', () => {
+        console.log('Widget audio started', { browserInfo });
+      });
+
+      widget.current.addEventListener('audioend', () => {
+        console.log('Widget audio ended', { browserInfo });
+      });
+
+      // Add speech state logging
+      widget.current.addEventListener('speechstart', () => {
+        console.log('Widget speech started', { browserInfo });
+      });
+
+      widget.current.addEventListener('speechend', () => {
+        console.log('Widget speech ended', { browserInfo });
       });
 
       const debugEvents = [
