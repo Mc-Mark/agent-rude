@@ -287,22 +287,34 @@ function App() {
   const handleWidgetMessage = useCallback((event: ConvaiMessageEvent) => {
     console.log('Widget message event received:', event);
     
+    let messageText = '';
+    
+    // Try to get text from different possible locations
     if (event.detail?.text) {
-      const text = event.detail.text;
-      console.log('Processing widget message:', text);
+      messageText = event.detail.text;
+    } else if (event instanceof CustomEvent && event.detail?.text) {
+      messageText = event.detail.text;
+    } else if (event instanceof MessageEvent && event.data?.text) {
+      messageText = event.data.text;
+    } else if (widget.current) {
+      messageText = widget.current.getAttribute('text') || '';
+    }
+    
+    if (messageText) {
+      console.log('Processing widget message:', messageText);
       
       // Try multiple ways to dispatch the message
       try {
         // 1. Try the global handler
         if ((window as any).handleAhmedMessage) {
           console.log('Using global message handler');
-          (window as any).handleAhmedMessage(text);
+          (window as any).handleAhmedMessage(messageText);
         }
 
         // 2. Dispatch custom event
         const messageEvent = new CustomEvent('widgetMessage', {
           detail: { 
-            text,
+            text: messageText,
             timestamp: new Date().toISOString(),
             source: 'ahmed'
           },
@@ -312,10 +324,10 @@ function App() {
 
         console.log('Dispatching widget message event');
         window.dispatchEvent(messageEvent);
-
+        
         // 3. Try standard message event
         const standardEvent = new MessageEvent('message', {
-          data: { text, source: 'ahmed' },
+          data: { text: messageText, source: 'ahmed' },
           origin: window.location.origin
         });
 
@@ -330,6 +342,8 @@ function App() {
       } catch (error) {
         console.error('Error dispatching message:', error);
       }
+    } else {
+      console.log('No message text found in event');
     }
   }, []);
 
@@ -406,50 +420,93 @@ function App() {
           continuous: true,
           interimResults: true,
           silenceDetectionConfig: {
-            minSpeechActivity: 0.3,     // Lower threshold for speech detection
-            timeBeforeSilence: 1500,    // Increased silence time before finalizing (in ms)
-            silenceThreshold: 0.15,     // Higher threshold for silence detection
-            minSilenceDuration: 1000,   // Minimum silence duration before stopping (in ms)
-            maxSpeechDuration: 30000    // Maximum speech duration (30 seconds)
+            minSpeechActivity: 0.3,
+            timeBeforeSilence: 1500,
+            silenceThreshold: 0.15,
+            minSilenceDuration: 1000,
+            maxSpeechDuration: 30000
           }
         }
       };
 
       const widgetElement = document.createElement('elevenlabs-convai');
       
-      // Basic configuration
+      // Set configuration
       Object.entries(widgetConfig).forEach(([key, value]) => {
-        widgetElement.setAttribute(key, value);
+        if (typeof value === 'object') {
+          widgetElement.setAttribute(key, JSON.stringify(value));
+        } else {
+          widgetElement.setAttribute(key, String(value));
+        }
         console.log(`Set widget attribute: ${key}`);
       });
 
       widget.current = widgetElement as ConvaiWidget;
 
-      // Add listeners before appending to DOM
+      // Add event listeners before appending
       const addListener = (eventName: string, handler: EventListener) => {
-        console.log(`Adding listener for: ${eventName}`);
-        widget.current?.addEventListener(eventName, handler);
+        if (widget.current) {
+          widget.current.addEventListener(eventName, handler);
+          console.log(`Added ${eventName} listener`);
+        }
       };
 
-      // Message handling
-      addListener('message', (event: Event) => {
-        console.log('Raw widget message event:', event);
-        handleWidgetMessage(event as ConvaiMessageEvent);
-      });
+      // Handle widget responses
+      addListener('message', handleWidgetMessage);
+      addListener('error', handleWidgetError);
 
-      // Error handling
-      addListener('error', (event: Event) => {
-        const errorEvent = event as ConvaiErrorEvent;
-        console.error('Widget error:', {
-          error: errorEvent.detail?.error,
-          timestamp: new Date().toISOString()
+      // Add specific audio event listeners
+      addListener('audiostart', () => {
+        console.log('Widget audio started');
+        let currentText = '';
+        
+        // Create a MutationObserver to watch for text changes
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (mutation.type === 'attributes' && mutation.attributeName === 'text') {
+              const newText = (mutation.target as HTMLElement).getAttribute('text') || '';
+              if (newText && newText !== currentText) {
+                currentText = newText;
+                console.log('Widget text updated:', newText);
+                
+                // Dispatch the text as a message
+                const messageEvent = new CustomEvent('widgetMessage', {
+                  detail: { 
+                    text: newText,
+                    timestamp: new Date().toISOString(),
+                    source: 'ahmed'
+                  },
+                  bubbles: true,
+                  cancelable: true
+                });
+                window.dispatchEvent(messageEvent);
+              }
+            }
+          });
         });
+
+        // Start observing the widget element
+        if (widget.current) {
+          observer.observe(widget.current, {
+            attributes: true,
+            attributeFilter: ['text']
+          });
+        }
       });
 
-      // State logging
-      ['audiostart', 'audioend', 'speechstart', 'speechend'].forEach(eventName => {
-        addListener(eventName, () => {
-          console.log(`Widget ${eventName} event`);
+      addListener('audioend', () => {
+        console.log('Widget audio ended');
+      });
+
+      addListener('speaking', (event: Event) => {
+        const speakingEvent = event as CustomEvent;
+        console.log('Widget speaking event:', speakingEvent.detail);
+      });
+
+      // Log all widget events for debugging
+      ['ready', 'start', 'end', 'error', 'message'].forEach(eventName => {
+        addListener(eventName, (event: Event) => {
+          console.log(`Widget ${eventName} event:`, event);
         });
       });
 
