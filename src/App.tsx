@@ -670,16 +670,15 @@ function App() {
       {/* Spacer to prevent content from being hidden behind fixed header */}
       <div className="h-[700px]"></div>
 
-      {/* Scrollable chat section */}
-      <div className="flex-grow container mx-auto px-4 relative z-0 mb-[400px]">
-        <div className="max-w-4xl mx-auto">
+      {/* Main content container */}
+      <div className="container mx-auto px-4 relative z-0">
+        {/* Chat section */}
+        <div className="max-w-4xl mx-auto mb-4">
           <Chat widget={widget.current} />
         </div>
-      </div>
 
-      {/* Fixed widget section at the bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 bg-gray-800 border-t border-gray-700">
-        <div className="max-w-4xl mx-auto">
+        {/* Widget section */}
+        <div className="max-w-4xl mx-auto bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
           <elevenlabs-convai
             ref={widget}
             api-key={import.meta.env.VITE_ELEVENLABS_API_KEY}
