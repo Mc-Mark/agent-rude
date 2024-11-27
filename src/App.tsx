@@ -285,16 +285,30 @@ function App() {
   }, []);
 
   const handleWidgetMessage = useCallback((event: ConvaiMessageEvent) => {
-    console.log('Widget message event:', event);
-    console.log('Widget message detail:', event.detail);
+    console.log('Widget message event received:', event);
     
     if (event.detail?.text) {
       console.log('Processing widget message:', event.detail.text);
+      
+      // Create a new message event that will work on mobile
       const messageEvent = new CustomEvent('message', {
-        detail: { text: event.detail.text }
+        detail: { 
+          text: event.detail.text,
+          timestamp: new Date().toISOString(),
+          source: 'ahmed'
+        },
+        bubbles: true,  // Allow event to bubble up
+        cancelable: true
       });
-      widget.current?.dispatchEvent(messageEvent);
-      console.log('Widget message dispatched:', event.detail.text);
+
+      // Dispatch to both widget and window to ensure mobile receives it
+      if (widget.current) {
+        console.log('Dispatching to widget:', event.detail.text);
+        widget.current.dispatchEvent(messageEvent);
+      }
+      
+      console.log('Dispatching to window:', event.detail.text);
+      window.dispatchEvent(messageEvent);
     }
   }, []);
 
@@ -342,15 +356,12 @@ function App() {
 
   // Initialize widget
   const initializeWidget = useCallback(() => {
-    if (!mounted.current) {
-      return;
-    }
-    
-    if (widget.current) {
+    if (!mounted.current || widget.current) {
       return;
     }
 
     try {
+      console.log('Starting widget initialization...');
       const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
       if (!apiKey) {
         throw new Error('ElevenLabs API key not found');
@@ -359,7 +370,8 @@ function App() {
       const browserInfo = {
         isMobile: isMobileBrowser(),
         isIOS: isIOSSafari(),
-        userAgent: navigator.userAgent
+        userAgent: navigator.userAgent,
+        platform: navigator.platform
       };
       
       console.log('Browser information:', browserInfo);
@@ -367,176 +379,64 @@ function App() {
       const widgetElement = document.createElement('elevenlabs-convai');
       
       // Basic configuration
-      widgetElement.setAttribute('agent-id', 'akUQ3jWHilChfhFfPsPM');
-      widgetElement.setAttribute('voice-id', 'pNInz6obpgDQGcFmaJgB');
-      widgetElement.setAttribute('api-key', apiKey);
-      widgetElement.setAttribute('stability', '0.7');
-      widgetElement.setAttribute('similarity-boost', '0.7');
+      const config = {
+        'agent-id': 'akUQ3jWHilChfhFfPsPM',
+        'voice-id': 'pNInz6obpgDQGcFmaJgB',
+        'api-key': apiKey,
+        'stability': '0.7',
+        'similarity-boost': '0.7',
+        'debug': 'true',  // Enable debug mode
+        'log-level': 'verbose'  // Set logging to verbose
+      };
 
-      // iOS Safari specific configuration
-      if (isIOSSafari()) {
-        console.log('Configuring widget for iOS Safari');
-        widgetElement.setAttribute('ios-safari', 'true');
-        // Force audio output through system
-        widgetElement.setAttribute('playback-device', 'system-default');
-      }
+      // Set all configurations
+      Object.entries(config).forEach(([key, value]) => {
+        widgetElement.setAttribute(key, value);
+        console.log(`Set widget attribute: ${key}`);
+      });
 
       widget.current = widgetElement as ConvaiWidget;
 
-      // Enhanced error handling
-      widget.current.addEventListener('error', (event: ConvaiErrorEvent) => {
+      // Add listeners before appending to DOM
+      const addListener = (eventName: string, handler: EventListener) => {
+        console.log(`Adding listener for: ${eventName}`);
+        widget.current?.addEventListener(eventName, handler);
+      };
+
+      // Message handling
+      addListener('message', (event: Event) => {
+        console.log('Raw widget message event:', event);
+        handleWidgetMessage(event as ConvaiMessageEvent);
+      });
+
+      // Error handling
+      addListener('error', (event: Event) => {
+        const errorEvent = event as ConvaiErrorEvent;
         console.error('Widget error:', {
-          error: event.detail?.error,
+          error: errorEvent.detail?.error,
           browserInfo,
           timestamp: new Date().toISOString()
         });
       });
 
-      // Enhanced message logging
-      widget.current.addEventListener('message', (event: ConvaiMessageEvent) => {
-        console.log('Widget message received:', {
-          text: event.detail?.text,
-          browserInfo,
-          timestamp: new Date().toISOString()
+      // State logging
+      ['audiostart', 'audioend', 'speechstart', 'speechend'].forEach(eventName => {
+        addListener(eventName, () => {
+          console.log(`Widget ${eventName} event`, { browserInfo });
         });
-        handleWidgetMessage(event);
       });
 
-      // Add audio state logging
-      widget.current.addEventListener('audiostart', () => {
-        console.log('Widget audio started', { browserInfo });
-      });
-
-      widget.current.addEventListener('audioend', () => {
-        console.log('Widget audio ended', { browserInfo });
-      });
-
-      // Add speech state logging
-      widget.current.addEventListener('speechstart', () => {
-        console.log('Widget speech started', { browserInfo });
-      });
-
-      widget.current.addEventListener('speechend', () => {
-        console.log('Widget speech ended', { browserInfo });
-      });
-
-      const debugEvents = [
-        'message', 'error', 'microphoneState',
-        'start', 'end', 'audiostart', 'audioend',
-        'speechstart', 'speechend', 'result'
-      ] satisfies (keyof ConvaiEventMap)[];
-
-      debugEvents.forEach((eventName: keyof ConvaiEventMap) => {
-        const debugHandler = (event: ConvaiEventMap[typeof eventName]) => {
-          console.log(`Widget ${eventName} event:`, event);
-        };
-        widget.current?.addEventListener(eventName, debugHandler as EventListener);
-        debugHandlers.current.push({ event: eventName, handler: debugHandler as EventListener });
-      });
-
-      // Add message event listener
-      widget.current.addEventListener('message', (event: ConvaiMessageEvent) => {
-        console.log('Ahmed response:', event.detail?.text);
-        handleWidgetMessage(event);
-      });
-
-      // Add error event listener
-      widget.current.addEventListener('error', (event: ConvaiErrorEvent) => {
-        console.error('Widget error:', event.detail?.error);
-      });
-
-      // Add microphone state listener
-      widget.current.addEventListener('microphoneState', (event: CustomEvent<{ state: 'on' | 'off' }>) => {
-        const state = event.detail.state;
-        isMicrophoneActive.current = state === 'on';
-        
-        if (state === 'on') {
-          console.log('Starting speech recognition');
-          void startListening();
-        } else if (state === 'off') {
-          console.log('Stopping speech recognition');
-          void stopListening();
-        }
-      });
-
-      console.log('Widget initialized successfully');
-
-      const observer = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-          if (mutation.type === 'childList') {
-            const micButton = widgetElement.querySelector('.microphone-button');
-            if (micButton) {
-              const oldHandler = micButton.getAttribute('data-mic-handler');
-              if (oldHandler) {
-                const oldHandlerFn = new Function(oldHandler) as EventListener;
-                micButton.removeEventListener('click', oldHandlerFn);
-              }
-              
-              const handleMicClick = async (event: Event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                
-                const isActive = (event.target as Element).classList.contains('active');
-                
-                if (!isActive) {
-                  try {
-                    await startListening();
-                    (event.target as Element).classList.add('active');
-                  } catch (error) {
-                    console.error('Error starting speech recognition:', error);
-                  }
-                } else {
-                  try {
-                    await stopListening();
-                    (event.target as Element).classList.remove('active');
-                  } catch (error) {
-                    console.error('Error stopping speech recognition:', error);
-                  }
-                }
-              };
-              
-              micButton.addEventListener('click', handleMicClick);
-              observer.disconnect();
-            }
-          }
-        }
-      });
-
-      observer.observe(widgetElement, { childList: true, subtree: true });
-
+      // Append to container
       if (widgetContainer.current) {
+        console.log('Appending widget to container');
         widgetContainer.current.appendChild(widgetElement);
+        console.log('Widget appended successfully');
       }
 
-      // Enhanced audio monitoring
-      const handleAudioStart = () => {
-        console.log('Audio output started - Voice playback beginning');
-      };
-
-      const handleAudioEnd = () => {
-        console.log('Audio output ended - Voice playback completed');
-      };
-
-      const handleAudioError = (event: any) => {
-        console.error('Audio playback error:', event.detail);
-      };
-
-      widget.current.addEventListener('audiostart', handleAudioStart);
-      widget.current.addEventListener('audioend', handleAudioEnd);
-      widget.current.addEventListener('error', handleAudioError);
-
-      // Add cleanup for new audio monitoring
-      widgetCleanup.current = () => {
-        if (widget.current) {
-          widget.current.removeEventListener('audiostart', handleAudioStart);
-          widget.current.removeEventListener('audioend', handleAudioEnd);
-          widget.current.removeEventListener('error', handleAudioError);
-        }
-      };
     } catch (error) {
-      console.error('Error initializing widget:', error);
+      console.error('Widget initialization error:', error);
     }
-  }, [startListening, stopListening]);
+  }, [handleWidgetMessage]);
 
   useEffect(() => {
     mounted.current = true;
